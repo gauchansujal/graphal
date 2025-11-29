@@ -4,8 +4,8 @@ const { buildSchema } = require('graphql');
 
 const app = express();
 
-// Sample Data
-const books = [
+// In-memory data
+let books = [
   {
     id: '1',
     title: 'The Great Gatsby',
@@ -22,47 +22,87 @@ const books = [
   }
 ];
 
-// GraphQL Schema
+// GraphQL Schema (fixed + mutations added)
 const schema = buildSchema(`
+  input BookInput {
+    title: String!
+    author: String!
+    year: Int!
+    genre: String
+  }
+
   type Book {
-    id: ID
-    title: String
-    author: String
-    year: Int
+    id: ID!
+    title: String!
+    author: String!
+    year: Int!
     genre: String
   }
 
   type Query {
-    books: [Book]
+    books: [Book!]!
     book(id: ID!): Book
-    searchBooks(query: String!): [Book]
+    searchBooks(query: String!): [Book!]!
+  }
+
+  type Mutation {
+    addBook(input: BookInput!): Book!
+    updateBook(id: ID!, input: BookInput!): Book
+    deleteBook(id: ID!): Boolean!
   }
 `);
 
 // Resolvers
 const root = {
+  // Queries
   books: () => books,
 
-  book: ({ id }) => books.find(book => book.id === id),
+  book: ({ id }) => books.find(b => b.id === id),
 
   searchBooks: ({ query }) => {
-    const searchTerm = query.toLowerCase();
-    return books.filter(
-      book =>
-        book.title.toLowerCase().includes(searchTerm) ||
-        book.author.toLowerCase().includes(searchTerm)
+    const term = query.toLowerCase();
+    return books.filter(book =>
+      book.title.toLowerCase().includes(term) ||
+      book.author.toLowerCase().includes(term)
     );
+  },
+
+  // Mutations
+  addBook: ({ input }) => {
+    const newBook = {
+      id: String(books.length + 1),
+      ...input
+    };
+    books.push(newBook);
+    return newBook;
+  },
+
+  updateBook: ({ id, input }) => {
+    const book = books.find(b => b.id === id);
+    if (!book) throw new Error("Book not found");
+
+    Object.assign(book, input);
+    return book;
+  },
+
+  deleteBook: ({ id }) => {
+    const index = books.findIndex(b => b.id === id);
+    if (index === -1) return false;
+
+    books.splice(index, 1);
+    return true;
   }
 };
 
-// GraphQL Route
+// Route
 app.use('/graphql', graphqlHTTP({
-  schema: schema,
+  schema,
   rootValue: root,
-  graphiql: true
+  graphiql: true  // Open http://localhost:4000 → you get playground!
 }));
 
 const PORT = 4000;
 app.listen(PORT, () => {
-  console.log(`Server running: http://localhost:${PORT}/graphql`);
+  console.log(`GraphQL Server running at http://localhost:${PORT}`);
+  console.log(`Open GraphiQL → http://localhost:${PORT}`);
 });
