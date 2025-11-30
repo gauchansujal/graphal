@@ -1,10 +1,11 @@
 const express = require('express');
 const { graphqlHTTP } = require('express-graphql');
-const { buildSchema } = require('graphql');
+const { buildSchema, GraphQLError } = require('graphql');
+const DataLoader = require('dataloader');
 
 const app = express();
 
-// In-memory data
+// In-memory data store
 let books = [
   {
     id: '1',
@@ -22,7 +23,7 @@ let books = [
   }
 ];
 
-// GraphQL Schema (fixed + mutations added)
+// GraphQL Schema
 const schema = buildSchema(`
   input BookInput {
     title: String!
@@ -52,12 +53,18 @@ const schema = buildSchema(`
   }
 `);
 
-// Resolvers
+// DataLoader for batching and caching book lookups (N+1 prevention)
+const bookLoader = new DataLoader(async (ids) => {
+  console.log('DataLoader batch loading IDs:', ids);
+  return ids.map(id => books.find(book => book.id === id) || null);
+});
+
+// Root Resolvers
 const root = {
-  // Queries
+  // === Queries ===
   books: () => books,
 
-  book: ({ id }) => books.find(b => b.id === id),
+  book: ({ id }) => bookLoader.load(id),
 
   searchBooks: ({ query }) => {
     const term = query.toLowerCase();
@@ -67,42 +74,69 @@ const root = {
     );
   },
 
-  // Mutations
+  // === Mutations ===
   addBook: ({ input }) => {
+    // Validation: year must be reasonable
+    const currentYear = new Date().getFullYear();
+    if (input.year < 0 || input.year > currentYear + 5) {
+      throw new GraphQLError('Invalid publication year', {
+        extensions: { code: 'BAD_USER_INPUT' }
+      });
+    }
+
     const newBook = {
       id: String(books.length + 1),
       ...input
     };
     books.push(newBook);
+    // Optionally clear/invalidate loader cache if needed
+    bookLoader.clear(newBook.id).prime(newBook.id, newBook);
     return newBook;
   },
 
   updateBook: ({ id, input }) => {
     const book = books.find(b => b.id === id);
-    if (!book) throw new Error("Book not found");
+    if (!book) {
+      throw new GraphQLError('Book not found', {
+        extensions: { code: 'NOT_FOUND' }
+      });
+    }
+
+    // Validate year if provided
+    if (input.year !== undefined) {
+      const currentYear = new Date().getFullYear();
+      if (input.year < 0 || input.year > currentYear + 5) {
+        throw new GraphQLError('Invalid publication year', {
+          extensions: { code: 'BAD_USER_INPUT' }
+        });
+      }
+    }
 
     Object.assign(book, input);
+    bookLoader.clear(id).prime(id, book); // Update cache
     return book;
   },
 
   deleteBook: ({ id }) => {
     const index = books.findIndex(b => b.id === id);
-    if (index === -1) return false;
-
+    if (index === -1) {
+      return false;
+    }
     books.splice(index, 1);
+    bookLoader.clear(id); // Remove from cache
     return true;
   }
 };
 
-// Route
+// Middleware
 app.use('/graphql', graphqlHTTP({
-  schema,
+  schema: schema,
   rootValue: root,
-  graphiql: true  // Open http://localhost:4000 → you get playground!
+  graphiql: true, // Built-in GraphQL IDE
 }));
 
 const PORT = 4000;
 app.listen(PORT, () => {
-  console.log(`GraphQL Server running at http://localhost:${PORT}`);
-  console.log(`Open GraphiQL → http://localhost:${PORT}`);
+  console.log(`GraphQL server running at http://localhost:${PORT}/graphql`);
+  console.log(`Open GraphiQL → http://localhost:${PORT}/graphql`);
 });
