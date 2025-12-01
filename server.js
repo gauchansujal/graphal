@@ -74,60 +74,35 @@ const root = {
     );
   },
 
-  // === Mutations ===
   addBook: ({ input }) => {
-    // Validation: year must be reasonable
-    const currentYear = new Date().getFullYear();
-    if (input.year < 0 || input.year > currentYear + 5) {
-      throw new GraphQLError('Invalid publication year', {
-        extensions: { code: 'BAD_USER_INPUT' }
-      });
-    }
-
     const newBook = {
       id: String(books.length + 1),
       ...input
-    };
+    }
     books.push(newBook);
-    // Optionally clear/invalidate loader cache if needed
-    bookLoader.clear(newBook.id).prime(newBook.id, newBook);
     return newBook;
   },
 
   updateBook: ({ id, input }) => {
-    const book = books.find(b => b.id === id);
-    if (!book) {
-      throw new GraphQLError('Book not found', {
-        extensions: { code: 'NOT_FOUND' }
-      });
-    }
+    const bookIndex = books.findIndex(book => book.id === id);
+    if (bookIndex === -1) return null;
 
-    // Validate year if provided
-    if (input.year !== undefined) {
-      const currentYear = new Date().getFullYear();
-      if (input.year < 0 || input.year > currentYear + 5) {
-        throw new GraphQLError('Invalid publication year', {
-          extensions: { code: 'BAD_USER_INPUT' }
-        });
-      }
+    const updatedBook = {
+      ...books[bookIndex],
+      ...input
     }
-
-    Object.assign(book, input);
-    bookLoader.clear(id).prime(id, book); // Update cache
-    return book;
+    books[bookIndex] = updatedBook;
+    return updatedBook;
   },
 
   deleteBook: ({ id }) => {
-    const index = books.findIndex(b => b.id === id);
-    if (index === -1) {
-      return false;
-    }
-    books.splice(index, 1);
-    bookLoader.clear(id); // Remove from cache
+    const bookIndex = books.findIndex(book => book.id === id);
+    if (bookIndex === -1) return false;
+
+    books.splice(bookIndex, 1);
     return true;
   }
 };
-
 // Middleware
 app.use('/graphql', graphqlHTTP({
   schema: schema,
