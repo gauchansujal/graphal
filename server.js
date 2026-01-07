@@ -115,3 +115,5 @@ app.listen(PORT, () => {
   console.log(`GraphQL server running at http://localhost:${PORT}/graphql`);
   console.log(`Open GraphiQL → http://localhost:${PORT}/graphql`);
 });
+
+// for comits in git hub
